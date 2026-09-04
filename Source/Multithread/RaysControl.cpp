@@ -31,11 +31,13 @@ void URaysControl::SetSliderValue(float Value) const {
 }
 
 void URaysControl::SetRayBatchDisplay(int32 RaysPerTimeSlice, int32 TotalRays,
-                                      float SliderValue) const {
+                                      float SliderValue, int32 GatheredThisSweep,
+                                      uint32 SweepNumber) const {
   if (!DisplayText)
     return;
 
   const int32 Percent = FMath::RoundToInt(SliderValue * 100.0f);
   DisplayText->SetText(FText::FromString(FString::Printf(
-      TEXT("%d / %d rays (%d%%)"), RaysPerTimeSlice, TotalRays, Percent)));
+      TEXT("%d / %d rays (%d%%) - sweep %u: %d/%d gathered"), RaysPerTimeSlice,
+      TotalRays, Percent, SweepNumber, GatheredThisSweep, TotalRays)));
 }

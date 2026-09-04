@@ -3,7 +3,8 @@
 
 #include "DrawDebugHelpers.h"
 #include "GridGenerator.h"
-#include "LineTraceWorker.h"
+#include "DeferredWorkSystem.h"
+#include "Jobs/ExposureTraceJob.h"
 #include "Multithread/MultithreadCharacter.h"
 #include "../RaysControl.h"
 
@@ -42,11 +43,19 @@ void UObserver::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     Super::EndPlay(EndPlayReason);
 
-    // Properly clean up any active workers
-    if (Worker)
+    // Cancel any in-flight sweep without blocking: worker lambdas hold only
+    // weak pointers and expire harmlessly.
+    if (ActiveBatch.IsValid())
     {
-        Worker->GetThread()->WaitForCompletion();
-        Worker.Reset();
+        if (const UWorld* World = GetWorld())
+        {
+            if (UDeferredWorkSystem* System = World->GetSubsystem<UDeferredWorkSystem>())
+            {
+                System->Cancel(ActiveBatch);
+            }
+        }
+        ActiveBatch = FDeferredJobHandle();
+        ActiveJob.Reset();
     }
 
     // Destroy rays control widget
@@ -63,13 +72,13 @@ void UObserver::TickComponent(float DeltaTime, ELevelTick TickType, FActorCompon
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    // Early exit if GridComponent is not set or if not using FRunnable but trying to use it
+    // Early exit if no grid to sweep
     if (!GridComponent)
     {
         return;
     }
 
-    if (bUseFRunnable)
+    if (bUseDeferredJobs)
     {
         const int32 NumTiles = GridComponent->GetNonBlockedTiles().Num();
         if (NumTiles < 1)
@@ -79,8 +88,21 @@ void UObserver::TickComponent(float DeltaTime, ELevelTick TickType, FActorCompon
 
         // Calculate number of rays per time slice based on percentage
         const int32 RaysPerTimeSlice = FMath::Max(1, FMath::CeilToInt(NumTiles * PercentageOfRaysPerTimeSlice));
-        UpdateRaysControlDisplay(RaysPerTimeSlice, NumTiles);
-        UpdateExposureMapRunnable(RaysPerTimeSlice);
+        int32 Gathered = 0;
+        if (UDeferredWorkSystem* ProgressSystem = GetWorld()->GetSubsystem<UDeferredWorkSystem>())
+        {
+            int32 ProgressTotal = 0;
+            if (!ProgressSystem->GetProgress(ActiveBatch, Gathered, ProgressTotal))
+            {
+                Gathered = 0;
+            }
+            // Retune the in-flight batch: the next kicked slice uses the new
+            // size, so slider drags take effect mid-sweep instead of waiting
+            // for HandleExposureBatchFinished. No-op on invalid handles.
+            ProgressSystem->SetNumPerSlice(ActiveBatch, RaysPerTimeSlice);
+        }
+        UpdateRaysControlDisplay(RaysPerTimeSlice, NumTiles, Gathered, SweepCount);
+        UpdateExposureDeferred(RaysPerTimeSlice);
     }
     else
     {
@@ -95,7 +117,7 @@ void UObserver::UpdateExposureMapNormal()
         return;
     }
 
-    const FVector Start = GetOwner()->GetActorLocation();
+    const FVector Start = GetOwner()->GetActorLocation() + FVector(0.0, 0.0, TraceHeightOffset);
     const TArray<FVector>& TileLocations = GridComponent->GetNonBlockedTileLocations();
     const int32 NumTiles = TileLocations.Num();
     
@@ -108,6 +130,12 @@ void UObserver::UpdateExposureMapNormal()
     TArray<UPrimitiveComponent*> IgnoredComponents;
     GridComponent->AppendTraceIgnoredComponents(IgnoredComponents);
     Params.AddIgnoredComponents(IgnoredComponents);
+
+    TArray<FTraceDebugRecord> Records;
+    if (bDrawDebugLines)
+    {
+        Records.Reserve(NumTiles);
+    }
     
     for (int32 i = 0; i < NumTiles; i++)
     {
@@ -117,6 +145,25 @@ void UObserver::UpdateExposureMapNormal()
             HitResult, Start, End, ECC_Visibility, Params);
         
         Exposure[i] = !bHit;
+
+        if (bDrawDebugLines)
+        {
+            FTraceDebugRecord Record;
+            Record.Start = Start;
+            Record.End = End;
+            Record.bHit = bHit;
+            Record.Location = End;
+            if (bHit)
+            {
+                Record.Location = HitResult.Location;
+            }
+            Records.Add(Record);
+        }
+    }
+
+    if (bDrawDebugLines)
+    {
+        DrawTraceRecords(Records, DebugLineDuration);
     }
 
     if (OnExposureMapUpdated.IsBound())
@@ -128,100 +175,106 @@ void UObserver::UpdateExposureMapNormal()
     Exposure.Empty(NumTiles); // Keep capacity for next use
 }
 
-void UObserver::UpdateExposureMapRunnable(int32 NumRaysPerTimeSlice)
+void UObserver::UpdateExposureDeferred(int32 NumRaysPerTimeSlice)
 {
+    UWorld* World = GetWorld();
+    if (!GridComponent || !World)
+    {
+        return;
+    }
+
+    UDeferredWorkSystem* System = World->GetSubsystem<UDeferredWorkSystem>();
+    if (!System)
+    {
+        return;
+    }
+
+    // A sweep is already running: its slices gather kicked work and kick the
+    // next slice inside the system tick. Nothing to do here but wait for
+    // HandleExposureBatchFinished. Never blocks (Chou delayed gather).
+    if (ActiveBatch.IsValid() && !System->IsDone(ActiveBatch))
+    {
+        return;
+    }
+    ActiveBatch = FDeferredJobHandle();
+    ActiveJob.Reset();
+
+    const TArray<FVector>& TileLocations = GridComponent->GetNonBlockedTileLocations();
+    const int32 NumTiles = TileLocations.Num();
+    if (NumTiles < 1)
+    {
+        return;
+    }
+    NumRaysPerTimeSlice = FMath::Clamp(NumRaysPerTimeSlice, 1, NumTiles);
+
+    // Snapshot everything on the game thread: the job never touches UObjects.
+    FCollisionQueryParams Params(FName(TEXT("LineTraceSingle")), true, GetOwner());
+    TArray<UPrimitiveComponent*> IgnoredComponents;
+    GridComponent->AppendTraceIgnoredComponents(IgnoredComponents);
+    Params.AddIgnoredComponents(IgnoredComponents);
+
+    TArray<FVector> EndsCopy = TileLocations;
+    TSharedPtr<FExposureTraceJob> Job = MakeShared<FExposureTraceJob>(
+        World, GetOwner()->GetActorLocation(), MoveTemp(EndsCopy), Params, ECC_Visibility, TraceHeightOffset);
+    FOnExposureBatchFinished DoneDelegate;
+    DoneDelegate.BindUObject(this, &UObserver::HandleExposureBatchFinished);
+    Job->SetOnFinished(DoneDelegate);
+
+    if (bDrawDebugLines)
+    {
+        FOnExposureSliceGathered SliceDelegate;
+        SliceDelegate.BindUObject(this, &UObserver::HandleExposureSliceGathered);
+        Job->SetOnSliceGathered(SliceDelegate);
+    }
+
+    ActiveJob = Job;
+    ActiveBatch = System->Submit(Job, NumRaysPerTimeSlice);
+    ++SweepCount;
+
+    // Track the sweep period so line lifetime matches it at any slice count.
+    const double SubmitNowSeconds = FPlatformTime::Seconds();
+    if (LastSubmitSeconds > 0.0)
+    {
+        const double Period = FMath::Max(SubmitNowSeconds - LastSubmitSeconds, KINDA_SMALL_NUMBER);
+        SweepPeriodEMASeconds = 0.7 * SweepPeriodEMASeconds + 0.3 * Period;
+    }
+    LastSubmitSeconds = SubmitNowSeconds;
+    LastSweepSliceCount = FMath::Max(1, FMath::DivideAndRoundUp(NumTiles, NumRaysPerTimeSlice));
+}
+
+void UObserver::HandleExposureSliceGathered(const TArray<FTraceDebugRecord>& SliceRecords)
+{
+    if (!bDrawDebugLines)
+    {
+        return;
+    }
+
+    // Period-matched trail: the visible fraction of a sweep stays constant at any
+    // slice count, full-bright always, so static frames fuse instead of strobing.
+    const float Duration = static_cast<float>(FMath::Clamp(
+        SweepPeriodEMASeconds * FMath::Max(1, DebugTrailSlices) / FMath::Max(1, LastSweepSliceCount),
+        1.0 / 60.0, 0.5));
+    DrawTraceRecords(SliceRecords, Duration);
+}
+
+void UObserver::HandleExposureBatchFinished(const TArray<bool>& FinishedExposure)
+{
+    ActiveBatch = FDeferredJobHandle();
+    ActiveJob.Reset();
+
     if (!GridComponent || !GetWorld())
     {
         return;
     }
 
-    const int32 NumTiles = GridComponent->GetNonBlockedTileLocations().Num();
-    NumRaysPerTimeSlice = FMath::Min(NumRaysPerTimeSlice, NumTiles);
+    Exposure = FinishedExposure;
 
-    // Process results from previous worker if available
-    if (Worker)
+    if (OnExposureMapUpdated.IsBound())
     {
-        // Check if worker is done before waiting
-        if (!Worker->IsWorkDone())
-        {
-            Worker->GetThread()->WaitForCompletion();
-        }
-        
-        // Append the results to our exposure array
-        TArray<bool> WorkerResults = Worker->GetExposureResults();
-        Exposure.Append(WorkerResults);
-
-        // Draw debug lines if enabled
-        if (bDrawDebugLines && TimeSliceBaseIndex >= 0)
-        {
-            const FVector Start = GetOwner()->GetActorLocation();
-            const TArray<FVector>& TileLocations = GridComponent->GetNonBlockedTileLocations();
-            
-            for (int32 i = 0; i < WorkerResults.Num(); i++)
-            {
-                if (const int32 Index = TimeSliceBaseIndex - WorkerResults.Num() + i; Index >= 0 && Index < NumTiles)
-                {
-                    const FVector& End = TileLocations[Index];
-                    const FColor Color = WorkerResults[i] ? FColor::Red : FColor::Green;
-                    
-                    DrawDebugLine(GetWorld(), Start, End, Color, false, 
-                                 DebugLineDuration, 0, DebugLineThickness);
-                }
-            }
-        }
+        OnExposureMapUpdated.Broadcast(Exposure);
     }
 
-    // Trim excess ray count for the last time slice of batch
-    int32 NumExcessRays = TimeSliceBaseIndex + NumRaysPerTimeSlice - NumTiles;
-    if (NumExcessRays > 0)
-    {
-        NumRaysPerTimeSlice -= NumExcessRays;
-    }
-
-    // Check if batch ended
-    if (TimeSliceBaseIndex < 0)
-    {
-        // Process final results
-        if (OnExposureMapUpdated.IsBound())
-        {
-            OnExposureMapUpdated.Broadcast(Exposure);
-        }
-        
-        GridComponent->UpdateGridColors(Exposure);
-        
-        // Clean up
-        Worker.Reset();
-        Exposure.Empty(NumTiles); // Empty but preserve capacity
-        
-        // Reset time slicing index
-        TimeSliceBaseIndex = 0;
-        return;
-    }
-
-    // Create new worker for the next batch
-    TArray<AActor*> IgnoredActors;
-    IgnoredActors.Add(GetOwner());
-
-    TArray<UPrimitiveComponent*> IgnoredComponents;
-    GridComponent->AppendTraceIgnoredComponents(IgnoredComponents);
-
-    Worker = MakeShared<ULineTraceWorker>(
-        GetOwner()->GetActorLocation(),
-        GridComponent->GetNonBlockedTileLocations(),
-        GetWorld(),
-        IgnoredActors,
-        IgnoredComponents,
-        TimeSliceBaseIndex,
-        NumRaysPerTimeSlice);
-
-    // Advance time slice index
-    TimeSliceBaseIndex += NumRaysPerTimeSlice;
-
-    // Check for end of batch
-    if (TimeSliceBaseIndex >= NumTiles)
-    {
-        TimeSliceBaseIndex = -1; // Signal end of batch
-    }
+    GridComponent->UpdateGridColors(Exposure);
 }
 
 void UObserver::SetGridComponent(const TObjectPtr<UGridGenerator> NewGridComponent)
@@ -242,22 +295,55 @@ void UObserver::SetRaysPerTimeSlice(float Value)
     const int32 RaysPerTimeSlice = TotalRays > 0
         ? FMath::Max(1, FMath::CeilToInt(TotalRays * PercentageOfRaysPerTimeSlice))
         : 0;
-    UpdateRaysControlDisplay(RaysPerTimeSlice, TotalRays);
+    UpdateRaysControlDisplay(RaysPerTimeSlice, TotalRays, 0, SweepCount);
 }
 
-void UObserver::UpdateRaysControlDisplay(int32 RaysPerTimeSlice, int32 TotalRays) const
+void UObserver::UpdateRaysControlDisplay(int32 RaysPerTimeSlice, int32 TotalRays, int32 Gathered, uint32 Sweep) const
 {
     if (!RaysControl)
     {
         return;
     }
 
-    RaysControl->SetRayBatchDisplay(RaysPerTimeSlice, TotalRays, PercentageOfRaysPerTimeSlice);
+    RaysControl->SetRayBatchDisplay(RaysPerTimeSlice, TotalRays, PercentageOfRaysPerTimeSlice, Gathered, Sweep);
 }
 
-void UObserver::SetDebugDrawing(bool bEnable, float Duration, float Thickness)
+void UObserver::DrawTraceRecords(const TArray<FTraceDebugRecord>& Records, float Duration) const
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    for (const FTraceDebugRecord& Record : Records)
+    {
+        const bool bExposed = !Record.bHit;
+        if (DebugDrawMode == EExposureDebugDrawMode::ExposedOnly && !bExposed)
+        {
+            continue;
+        }
+        if (DebugDrawMode == EExposureDebugDrawMode::BlockedOnly && bExposed)
+        {
+            continue;
+        }
+
+        if (Record.bHit)
+        {
+            DrawDebugLine(World, Record.Start, Record.Location, FColor::Green, false, Duration, 0, DebugLineThickness);
+            DrawDebugPoint(World, Record.Location, 8.0f, FColor::Green, false, Duration);
+        }
+        else
+        {
+            DrawDebugLine(World, Record.Start, Record.End, FColor::Red, false, Duration, 0, DebugLineThickness);
+        }
+    }
+}
+
+void UObserver::SetDebugDrawing(bool bEnable, float Duration, float Thickness, EExposureDebugDrawMode Mode)
 {
     bDrawDebugLines = bEnable;
     DebugLineDuration = Duration;
     DebugLineThickness = Thickness;
+    DebugDrawMode = Mode;
 }

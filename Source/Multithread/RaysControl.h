@@ -44,5 +44,6 @@ public:
   void SetSliderValue(float Value) const;
 
   void SetRayBatchDisplay(int32 RaysPerTimeSlice, int32 TotalRays,
-                          float SliderValue) const;
+                          float SliderValue, int32 GatheredThisSweep,
+                          uint32 SweepNumber) const;
 };
