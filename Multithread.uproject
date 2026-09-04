@@ -1,9 +1,14 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "{F88FED87-445B-4D65-A9D5-E4004078CD67}",
+	"EngineAssociation": "{102A19D9-1D5F-48F4-B5BF-694DBE14EF4A}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
+		{
+			"Name": "DeferredJobs",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
 		{
 			"Name": "Multithread",
 			"Type": "Runtime",
@@ -17,6 +22,18 @@
 			"TargetAllowList": [
 				"Editor"
 			]
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true
+		},
+		{
+			"Name": "MCPClientToolset",
+			"Enabled": true
+		},
+		{
+			"Name": "AllToolsets",
+			"Enabled": true
 		}
 	]
 }
