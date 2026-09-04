@@ -3,11 +3,12 @@
 This is a hands-on Unreal Engine C++ experiment based on Allen Chou's articles
 on [Delayed Result Gathering](https://allenchou.net/2021/05/delayed-result-gathering/)
 and [Time Slicing](https://allenchou.net/2021/05/time-slicing/). It explores
-deferred visibility queries using `FRunnable` workers, line traces, and
-time-sliced result gathering.
+deferred visibility queries using a generic `DeferredJobs` module
+(`ITimeSlicedJob` + `UDeferredWorkSystem`), game-thread time-sliced line
+traces, and live per-slice debug visualization.
 
-[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.7-black?logo=unrealengine&logoColor=white)](https://www.unrealengine.com/)
-[![C++](https://img.shields.io/badge/C%2B%2B-FRunnable-blue)](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/HAL/FRunnable)
+[![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.8-black?logo=unrealengine&logoColor=white)](https://www.unrealengine.com/)
+[![C++](https://img.shields.io/badge/C%2B%2B-DeferredJobs-blue)](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/HAL/FPlatformTime)
 
 <img width="1164" height="855" alt="Actor scanning a grid while a runner navigates to the nearest hidden tile" src="https://github.com/user-attachments/assets/2b559e96-f9ec-4bd7-9067-5ceb99e88649" />
 
@@ -30,12 +31,16 @@ results are gathered later, and the grid stores an exposure map:
 ```mermaid
 flowchart LR
     Observer["Observer position"] --> Budget["Ray budget slider"]
-    Budget --> Slice["Select ray slice"]
-    Slice --> Worker["ULineTraceWorker<br/>FRunnable"]
-    Worker --> Gather["Gather previous slice"]
-    Gather --> Map["Grid exposure map"]
-    Map --> Grid["Grid colors<br/>red = exposed<br/>green = hidden"]
-    Map --> Runner["Runner finds nearest hidden tile"]
+    Budget --> Submit["Submit FExposureTraceJob<br/>(ITimeSlicedJob)"]
+    Submit --> Kick["Kick one slice per tick<br/>UDeferredWorkSystem"]
+    Kick --> Exec["ExecuteRange<br/>game-thread traces"]
+    Exec --> Gather["GatherRange previous slice<br/>(never blocks)"]
+    Gather --> Slice["OnSliceGathered<br/>live debug lines"]
+    Gather --> Tail{"Tail gathered?"}
+    Tail -- No --> Kick
+    Tail -- Yes --> Finish["OnBatchFinished<br/>exposure map"]
+    Finish --> Grid["Grid colors<br/>red = exposed<br/>green = hidden"]
+    Finish --> Runner["Runner finds nearest hidden tile"]
     Runner --> Move["AI MoveToLocation"]
 ```
 
@@ -47,9 +52,12 @@ raycast in one blocking pass.
 
 ## Features
 
-- Time-sliced line trace batches.
-- Deferred result gathering across frames.
-- `FRunnable` worker for trace batches.
+- Generic `DeferredJobs` module: `ITimeSlicedJob` jobs, tick-driven scheduler.
+- Time-sliced line trace batches with delayed result gathering across frames.
+- Game-thread trace slices (physics queries stay off worker threads).
+- Live per-slice debug visualization: hit-aware ray stubs, impact dots, draw modes.
+- Eye-height trace offset shared by tracing and drawing.
+- `.ini`-tunable gather budgets (`GatherBudgetMs`, `MaxKicksPerTick`).
 - Runtime ray budget slider with `rays per slice / total rays` display.
 - Grid exposure visualization.
 - Runner AI that seeks the nearest non-exposed tile.
@@ -61,17 +69,27 @@ raycast in one blocking pass.
 
 Key code paths:
 
-- [`Observer.cpp`](Source/Multithread/Grid/Observer.cpp#L131) owns the update
-  loop. It gathers the previous trace slice, updates the exposure map when a
-  full batch is complete, and schedules the next slice.
-- [`LineTraceWorker.h`](Source/Multithread/Grid/LineTraceWorker.h#L11) runs a
-  slice of line traces on an `FRunnable` worker and returns exposure results.
+- [`Observer.cpp`](Source/Multithread/Grid/Observer.cpp#L165) owns the update
+  loop. It submits one `FExposureTraceJob` sweep per grid pass, draws each
+  gathered slice live at [`#L221`](Source/Multithread/Grid/Observer.cpp#L221),
+  and applies the full exposure map on batch completion at
+  [`#L229`](Source/Multithread/Grid/Observer.cpp#L229). Shared draw helper at
+  [`#L280`](Source/Multithread/Grid/Observer.cpp#L280).
+- [`ExposureTraceJob.h`](Source/Multithread/Public/Jobs/ExposureTraceJob.h)
+  implements the `ITimeSlicedJob` contract: snapshot inputs at construction,
+  trace one slice in `ExecuteRange`, merge it in `GatherRange`, report per-slice
+  debug records for live drawing, swap buffers in `OnBatchFinished`.
+- [`DeferredWorkSystem`](Source/DeferredJobs/Public/DeferredWorkSystem.h) owns
+  all batches: gather-if-ready, kick one slice per tick, finish on the tail
+  signal. Never blocks the game thread. See
+  [`Source/DeferredJobs/README.md`](Source/DeferredJobs/README.md) for the
+  module contract, thread policies, and tuning.
 - [`GridGenerator.cpp`](Source/Multithread/Grid/GridGenerator.cpp#L66) builds
   the grid, tracks obstacle cells, stores the current exposure map, colors
   exposed/hidden tiles at [`#L237`](Source/Multithread/Grid/GridGenerator.cpp#L237),
   and exposes hidden tile locations at
   [`#L218`](Source/Multithread/Grid/GridGenerator.cpp#L218).
-- [`MultithreadAIController.cpp`](Source/Multithread/MultithreadAIController.cpp#L30)
+- [`MultithreadAIController.cpp`](Source/Multithread/MultithreadAIController.cpp#L40)
   moves runners toward the nearest non-exposed tile.
 - [`RaysControl.cpp`](Source/Multithread/RaysControl.cpp#L33) backs the UMG
   slider and displays the resolved ray count per slice.
