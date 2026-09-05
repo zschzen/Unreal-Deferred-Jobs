@@ -12,5 +12,6 @@ public class MultithreadEditorTarget : TargetRules
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
 		ExtraModuleNames.Add("Multithread");
 		ExtraModuleNames.Add("DeferredJobs");
+		ExtraModuleNames.Add("UIBase");
 	}
 }
