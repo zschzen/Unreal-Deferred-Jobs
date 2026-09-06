@@ -10,7 +10,22 @@ public class UIBase : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
-			"Core", "CoreUObject", "Engine"
+			"Core", "CoreUObject", "Engine",
+
+			// UUserWidget
+			"UMG",
+
+			// UMVVMViewModelBase, UMVVMView, UMVVMSubsystem
+			"ModelViewViewModel",
+
+			// INotifyFieldValueChanged
+			"FieldNotification",
+
+			// FGameplayTag
+			"GameplayTags",
+
+			// UUIBaseSettings
+			"DeveloperSettings"
 		});
 	}
 }
