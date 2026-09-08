@@ -4,9 +4,13 @@
 #include "DrawDebugHelpers.h"
 #include "GridGenerator.h"
 #include "DeferredWorkSystem.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerController.h"
 #include "Jobs/ExposureTraceJob.h"
 #include "Multithread/MultithreadCharacter.h"
-#include "../RaysControl.h"
+#include "UIBaseController.h"
+#include "UIBaseSubsystem.h"
+#include "../UI/RaysViewModel.h"
 
 // Sets default values for this component's properties
 UObserver::UObserver()
@@ -26,17 +30,9 @@ void UObserver::BeginPlay()
     // Initialize exposure array
     Exposure.Empty();
 
-    // Create rays control widget
-    if (RaysControlClass)
-    {
-        RaysControl = CreateWidget<URaysControl>(GetWorld(), RaysControlClass);
-        if (RaysControl)
-        {
-            RaysControl->AddToViewport();
-            RaysControl->OnSliderValueChangedDelegate.AddDynamic(this, &UObserver::SetRaysPerTimeSlice);
-            RaysControl->SetSliderValue(PercentageOfRaysPerTimeSlice);
-        }
-    }
+    // The rays widget is created by the UIBase Controller, not here. This
+    // component only mirrors numbers into the ViewModel, resolved lazily from
+    // TickComponent.
 }
 
 void UObserver::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -58,12 +54,13 @@ void UObserver::EndPlay(const EEndPlayReason::Type EndPlayReason)
         ActiveJob.Reset();
     }
 
-    // Destroy rays control widget
-    if (RaysControl)
+    // Drop the subscription only. The ViewModel belongs to the Controller, which
+    // deinitializes it on the next PlayerControllerChanged.
+    if (RaysViewModel)
     {
-        RaysControl->OnSliderValueChangedDelegate.RemoveAll(this);
-        RaysControl->RemoveFromParent();
-        RaysControl = nullptr;
+        RaysViewModel->OnSliderValueRequested.Remove(SliderHandle);
+        SliderHandle.Reset();
+        RaysViewModel = nullptr;
     }
 }
 
@@ -101,7 +98,10 @@ void UObserver::TickComponent(float DeltaTime, ELevelTick TickType, FActorCompon
             // for HandleExposureBatchFinished. No-op on invalid handles.
             ProgressSystem->SetNumPerSlice(ActiveBatch, RaysPerTimeSlice);
         }
-        UpdateRaysControlDisplay(RaysPerTimeSlice, NumTiles, Gathered, SweepCount);
+        if (URaysViewModel* ViewModel = ResolveViewModel())
+        {
+            ViewModel->SetBatchStats(RaysPerTimeSlice, NumTiles, Gathered, SweepCount);
+        }
         UpdateExposureDeferred(RaysPerTimeSlice);
     }
     else
@@ -295,17 +295,40 @@ void UObserver::SetRaysPerTimeSlice(float Value)
     const int32 RaysPerTimeSlice = TotalRays > 0
         ? FMath::Max(1, FMath::CeilToInt(TotalRays * PercentageOfRaysPerTimeSlice))
         : 0;
-    UpdateRaysControlDisplay(RaysPerTimeSlice, TotalRays, 0, SweepCount);
+    // Only ever reached from the ViewModel's own delegate, so it is live here.
+    if (RaysViewModel)
+    {
+        RaysViewModel->SetBatchStats(RaysPerTimeSlice, TotalRays, 0, SweepCount);
+    }
 }
 
-void UObserver::UpdateRaysControlDisplay(int32 RaysPerTimeSlice, int32 TotalRays, int32 Gathered, uint32 Sweep) const
+URaysViewModel* UObserver::ResolveViewModel()
 {
-    if (!RaysControl)
+    if (RaysViewModel)
     {
-        return;
+        return RaysViewModel;
     }
 
-    RaysControl->SetRayBatchDisplay(RaysPerTimeSlice, TotalRays, PercentageOfRaysPerTimeSlice, Gathered, Sweep);
+    const UWorld* World = GetWorld();
+    const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+    const ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
+    const UUIBaseSubsystem* Subsystem = LocalPlayer ? LocalPlayer->GetSubsystem<UUIBaseSubsystem>() : nullptr;
+    UUIBaseController* Controller = Subsystem ? Subsystem->GetController() : nullptr;
+    if (!Controller)
+    {
+        // The Controller is built in PlayerControllerChanged, which may not have run
+        // yet. Stays silent on purpose: this is polled every frame.
+        return nullptr;
+    }
+
+    RaysViewModel = Cast<URaysViewModel>(Controller->GetOrCreateViewModel(URaysViewModel::StaticClass()));
+    if (RaysViewModel)
+    {
+        SliderHandle = RaysViewModel->OnSliderValueRequested.AddUObject(this, &UObserver::SetRaysPerTimeSlice);
+        RaysViewModel->SetSliderValue(PercentageOfRaysPerTimeSlice);
+    }
+
+    return RaysViewModel;
 }
 
 void UObserver::DrawTraceRecords(const TArray<FTraceDebugRecord>& Records, float Duration) const

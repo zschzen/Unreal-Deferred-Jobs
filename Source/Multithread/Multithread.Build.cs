@@ -11,7 +11,9 @@ public class Multithread : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "NavigationSystem", "AIModule",
-			"Niagara", "EnhancedInput", "RenderCore", "UMG", "Slate", "SlateCore", "DeferredJobs", "UIBase"
+			"Niagara", "EnhancedInput", "RenderCore", "UMG", "Slate", "SlateCore", "DeferredJobs", "UIBase",
+
+			"ModelViewViewModel", "FieldNotification"
 		});
 	}
 }

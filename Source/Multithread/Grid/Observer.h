@@ -11,7 +11,7 @@
 class UGridGenerator;
 // Forward declarations
 class UGridComponent;
-class URaysControl;
+class URaysViewModel;
 class UDeferredWorkSystem;
 
 UENUM(BlueprintType)
@@ -123,17 +123,19 @@ private:
     // Completed sweep count (drives the live progress readout).
     uint32 SweepCount = 0;
 
-    // UI Control widget
+    // Presentable mirror of the sweep. Owned by the UIBase Controller, never by
+    // this component: the widget's lifetime is the Controller's business.
     UPROPERTY()
-    TObjectPtr<URaysControl> RaysControl = nullptr;
+    TObjectPtr<URaysViewModel> RaysViewModel = nullptr;
 
-    // URaysControl class reference
-    UPROPERTY(EditDefaultsOnly, Category = "Observer|UI")
-    TSubclassOf<URaysControl> RaysControlClass;
-    
+    FDelegateHandle SliderHandle;
+
+    // Caches on first success. Called from TickComponent, not BeginPlay: this
+    // component lives on a Character spawned by the GameMode, and there is no
+    // ordering guarantee against ULocalPlayerSubsystem::PlayerControllerChanged.
+    // A null return is a normal early frame, not an error.
+    URaysViewModel* ResolveViewModel();
+
     // Callback for slider value changes
-    UFUNCTION()
     void SetRaysPerTimeSlice(float Value);
-
-    void UpdateRaysControlDisplay(int32 RaysPerTimeSlice, int32 TotalRays, int32 Gathered, uint32 Sweep) const;
 };
