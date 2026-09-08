@@ -22,22 +22,10 @@ AMultithreadGameMode::AMultithreadGameMode()
 	// set default controller to our Blueprinted controller
 	static ConstructorHelpers::FClassFinder<APlayerController> PlayerControllerBPClass(
 		TEXT("/Game/TopDown/Blueprints/BP_TopDownPlayerController"));
-	if (PlayerControllerBPClass.Class != NULL)
+	if (PlayerControllerBPClass.Class != nullptr)
 	{
 		PlayerControllerClass = PlayerControllerBPClass.Class;
 	}
 
-	// HUD hosts the UIBase screens (Rays view). Maps without a GameMode
-	// Override (e.g. HUGE_MAP) fall back to this; BP_GM inherits it.
-	// Prefers the HUD Blueprint; falls back to the C++ host on miss.
-	static ConstructorHelpers::FClassFinder<AHUD> HUDBPClass(
-		TEXT("/Game/Blueprints/UI/BP_MultithreadHUD"));
-	if (HUDBPClass.Class != nullptr)
-	{
-		HUDClass = HUDBPClass.Class;
-	}
-	else
-	{
-		HUDClass = AMultithreadHUD::StaticClass();
-	}
+	HUDClass = AMultithreadHUD::StaticClass();
 }
