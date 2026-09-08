@@ -14,7 +14,7 @@ class MULTITHREAD_API URaysViewModel : public UUIBaseViewModel
 
 public:
 
-	/** UI intent travelling outward. Gameplay subscribes; nothing else does */
+	/** UI intent travelling outward */
 	DECLARE_MULTICAST_DELEGATE_OneParam( FOnSliderValueRequested, float );
 	FOnSliderValueRequested OnSliderValueRequested;
 
