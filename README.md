@@ -62,6 +62,8 @@ raycast in one blocking pass.
 - Grid exposure visualization.
 - Runner AI that seeks the nearest non-exposed tile.
 - Obstacle-aware grid generation with instanced mesh support.
+- `UIBase` MVVM module: per-player Controller with cached ViewModels (see
+  [`Source/UIBase/README.md`](Source/UIBase/README.md)).
 
 ---
 
@@ -91,8 +93,11 @@ Key code paths:
   [`#L218`](Source/Multithread/Grid/GridGenerator.cpp#L218).
 - [`MultithreadAIController.cpp`](Source/Multithread/MultithreadAIController.cpp#L40)
   moves runners toward the nearest non-exposed tile.
-- [`RaysControl.cpp`](Source/Multithread/RaysControl.cpp#L33) backs the UMG
-  slider and displays the resolved ray count per slice.
+- [`RaysControl.h`](Source/Multithread/UI/RaysControl.h) (`UUIBaseView`) and
+  [`RaysViewModel.h`](Source/Multithread/UI/RaysViewModel.h)
+  (`UUIBaseViewModel`) back the UMG slider; `AMultithreadHUD` and `UObserver`
+  resolve the ViewModel lazily via `UUIBaseSubsystem -> UUIBaseController`.
+  See [`Source/UIBase/README.md`](Source/UIBase/README.md) for the module contract.
 
 Exposure map convention:
 
