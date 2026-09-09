@@ -16,7 +16,7 @@ public:
 
 	/** UI intent travelling outward */
 	DECLARE_MULTICAST_DELEGATE_OneParam( FOnSliderValueRequested, float );
-	FOnSliderValueRequested OnSliderValueRequested;
+	FOnSliderValueRequested OnSliderValueRequested {};
 
 	/** Called by the Widget Blueprint from Slider.OnValueChanged */
 	UFUNCTION( BlueprintCallable, Category = "Rays" )
@@ -31,6 +31,22 @@ public:
 	/** Bound to TextBlock.Text. Derived from the stats below; no backing storage */
 	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
 	FText GetDisplayText() const;
+
+	/** Bound to RaysCountText.Text */
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	FText GetRaysPerSliceText() const;
+
+	/** Bound to BatchProgressBar.Percent */
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	float GetBatchProgress() const;
+
+	/** Bound to RemainingText.Text */
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	FText GetRemainingText() const;
+
+	/** Bound to BatchesText.Text */
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	FText GetBatchesText() const;
 
 	/** Pushed every frame by UObserver. Broadcasts only when a number actually moved */
 	void SetBatchStats( int32 InRaysPerSlice, int32 InTotalRays, int32 InGathered, uint32 InSweep );
