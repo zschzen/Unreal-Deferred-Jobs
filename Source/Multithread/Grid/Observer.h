@@ -129,6 +129,7 @@ private:
     TObjectPtr<URaysViewModel> RaysViewModel = nullptr;
 
     FDelegateHandle SliderHandle;
+    FDelegateHandle DebugHandle;
 
     // Caches on first success. Called from TickComponent, not BeginPlay: this
     // component lives on a Character spawned by the GameMode, and there is no
@@ -138,4 +139,7 @@ private:
 
     // Callback for slider value changes
     void SetRaysPerTimeSlice(float Value);
+
+    // Callback for the ViewModel's debug checkbox
+    void SetDebugDrawEnabled(bool bEnabled);
 };

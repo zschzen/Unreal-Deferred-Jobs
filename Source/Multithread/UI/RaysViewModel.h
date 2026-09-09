@@ -51,6 +51,20 @@ public:
 	/** Pushed every frame by UObserver. Broadcasts only when a number actually moved */
 	void SetBatchStats( int32 InRaysPerSlice, int32 InTotalRays, int32 InGathered, uint32 InSweep );
 
+	/** UI intent travelling outward */
+	DECLARE_MULTICAST_DELEGATE_OneParam( FOnDebugDrawRequested, bool );
+	FOnDebugDrawRequested OnDebugDrawRequested {};
+
+	/** Called by the Widget Blueprint from DebugCheckBox.OnCheckStateChanged */
+	UFUNCTION( BlueprintCallable, Category = "Rays" )
+	void RequestDebugDraw( bool bInEnabled );
+
+	/** Bound to DebugCheckBox.IsChecked. Seeded and corrected by gameplay */
+	UPROPERTY( BlueprintReadOnly, FieldNotify, Category = "Rays" )
+	bool bDebugDraw = false;
+
+	void SetDebugDraw( bool bInEnabled );
+
 private:
 
 	int32 RaysPerTimeSlice = 0;

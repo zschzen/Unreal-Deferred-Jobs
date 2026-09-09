@@ -72,3 +72,16 @@ URaysViewModel::SetBatchStats( int32 InRaysPerSlice, int32 InTotalRays, int32 In
 	UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED( GetRemainingText );
 	UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED( GetBatchesText );
 }
+
+void
+URaysViewModel::RequestDebugDraw( bool bInEnabled )
+{
+	SetDebugDraw( bInEnabled );
+	OnDebugDrawRequested.Broadcast( bInEnabled );
+}
+
+void
+URaysViewModel::SetDebugDraw( bool bInEnabled )
+{
+	UE_MVVM_SET_PROPERTY_VALUE( bDebugDraw, bInEnabled );
+}

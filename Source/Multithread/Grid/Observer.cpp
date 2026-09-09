@@ -60,6 +60,8 @@ void UObserver::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         RaysViewModel->OnSliderValueRequested.Remove(SliderHandle);
         SliderHandle.Reset();
+        RaysViewModel->OnDebugDrawRequested.Remove(DebugHandle);
+        DebugHandle.Reset();
         RaysViewModel = nullptr;
     }
 }
@@ -220,12 +222,12 @@ void UObserver::UpdateExposureDeferred(int32 NumRaysPerTimeSlice)
     DoneDelegate.BindUObject(this, &UObserver::HandleExposureBatchFinished);
     Job->SetOnFinished(DoneDelegate);
 
-    if (bDrawDebugLines)
-    {
-        FOnExposureSliceGathered SliceDelegate;
-        SliceDelegate.BindUObject(this, &UObserver::HandleExposureSliceGathered);
-        Job->SetOnSliceGathered(SliceDelegate);
-    }
+    // Bound unconditionally: HandleExposureSliceGathered checks bDrawDebugLines
+    // itself, so a checkbox toggle mid-sweep takes effect immediately instead
+    // of only on the next submit.
+    FOnExposureSliceGathered SliceDelegate;
+    SliceDelegate.BindUObject(this, &UObserver::HandleExposureSliceGathered);
+    Job->SetOnSliceGathered(SliceDelegate);
 
     ActiveJob = Job;
     ActiveBatch = System->Submit(Job, NumRaysPerTimeSlice);
@@ -302,6 +304,11 @@ void UObserver::SetRaysPerTimeSlice(float Value)
     }
 }
 
+void UObserver::SetDebugDrawEnabled(bool bEnabled)
+{
+    bDrawDebugLines = bEnabled;
+}
+
 URaysViewModel* UObserver::ResolveViewModel()
 {
     if (RaysViewModel)
@@ -326,6 +333,8 @@ URaysViewModel* UObserver::ResolveViewModel()
     {
         SliderHandle = RaysViewModel->OnSliderValueRequested.AddUObject(this, &UObserver::SetRaysPerTimeSlice);
         RaysViewModel->SetSliderValue(PercentageOfRaysPerTimeSlice);
+        DebugHandle = RaysViewModel->OnDebugDrawRequested.AddUObject(this, &UObserver::SetDebugDrawEnabled);
+        RaysViewModel->SetDebugDraw(bDrawDebugLines);
     }
 
     return RaysViewModel;
