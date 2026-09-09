@@ -19,33 +19,33 @@ public:
 	FOnSliderValueRequested OnSliderValueRequested {};
 
 	/** Called by the Widget Blueprint from Slider.OnValueChanged */
-	UFUNCTION( BlueprintCallable, Category = "Rays" )
+	UFUNCTION( BlueprintCallable, Category = "Rays|Slider" )
 	void RequestSliderValue( float InValue );
 
 	/** Bound to Slider.Value. Seeded and corrected by gameplay */
-	UPROPERTY( BlueprintReadOnly, FieldNotify, Category = "Rays" )
+	UPROPERTY( BlueprintReadOnly, FieldNotify, Category = "Rays|Slider" )
 	float SliderValue = 0.01f;
 
 	void SetSliderValue( float InValue );
 
 	/** Bound to TextBlock.Text. Derived from the stats below; no backing storage */
-	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays|Stats" )
 	FText GetDisplayText() const;
 
 	/** Bound to RaysCountText.Text */
-	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays|Stats" )
 	FText GetRaysPerSliceText() const;
 
 	/** Bound to BatchProgressBar.Percent */
-	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays|Stats" )
 	float GetBatchProgress() const;
 
 	/** Bound to RemainingText.Text */
-	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays|Stats" )
 	FText GetRemainingText() const;
 
 	/** Bound to BatchesText.Text */
-	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays" )
+	UFUNCTION( BlueprintPure, FieldNotify, Category = "Rays|Stats" )
 	FText GetBatchesText() const;
 
 	/** Pushed every frame by UObserver. Broadcasts only when a number actually moved */
@@ -56,11 +56,11 @@ public:
 	FOnDebugDrawRequested OnDebugDrawRequested {};
 
 	/** Called by the Widget Blueprint from DebugCheckBox.OnCheckStateChanged */
-	UFUNCTION( BlueprintCallable, Category = "Rays" )
+	UFUNCTION( BlueprintCallable, Category = "Rays|Debug" )
 	void RequestDebugDraw( bool bInEnabled );
 
-	/** Bound to DebugCheckBox.IsChecked. Seeded and corrected by gameplay */
-	UPROPERTY( BlueprintReadOnly, FieldNotify, Category = "Rays" )
+	/** Bound to DebugCheckBox. Seeded and corrected by gameplay */
+	UPROPERTY( BlueprintReadOnly, FieldNotify, Category = "Rays|Debug" )
 	bool bDebugDraw = false;
 
 	void SetDebugDraw( bool bInEnabled );
