@@ -10,7 +10,8 @@ traces, and live per-slice debug visualization.
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.8-black?logo=unrealengine&logoColor=white)](https://www.unrealengine.com/)
 [![C++](https://img.shields.io/badge/C%2B%2B-DeferredJobs-blue)](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/HAL/FPlatformTime)
 
-<img width="1164" height="855" alt="Actor scanning a grid while a runner navigates to the nearest hidden tile" src="https://github.com/user-attachments/assets/2b559e96-f9ec-4bd7-9067-5ceb99e88649" />
+<img width="1080" height="765" alt="Actor scanning a grid while a runner navigates to the nearest hidden tile" src="https://github.com/user-attachments/assets/4c2edbf4-97e3-480b-9113-eac99fd2d385" />
+
 
 > [!NOTE]
 > The exposure map is a test case only. The goal is to experiment with deferred
